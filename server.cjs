@@ -16,10 +16,21 @@ if (!METAAPI_TOKEN || !ACCOUNT_ID) {
   throw new Error("Missing METAAPI_TOKEN or METAAPI_ACCOUNT_ID");
 }
 
-const LOVABLE_SYMBOLS = ["EURUSD.a","GBPUSD.a","BTCUSD.a","XAUUSD.a"];
+// ✅ Symbols your Lovable app can request
+const LOVABLE_SYMBOLS = [
+  "EURUSD.a",
+  "GBPUSD.a",
+  "BTCUSD.a",
+  "XAUUSD.a"
+];
 
+// symbol -> latest tick payload
 const latest = new Map();
+
+// res -> symbol requested
 const clients = new Map();
+
+// Track subscriptions so we never double-subscribe
 const subscribed = new Set();
 
 function sendSse(res, event, data) {
@@ -49,15 +60,23 @@ let connection;
 async function subscribeIfNeeded(symbol) {
   if (subscribed.has(symbol)) return;
 
+  console.log("📡 Subscribing:", symbol);
+
   await connection.subscribeToMarketData(symbol, [
     { type: "ticks", intervalInMilliseconds: 250 }
   ]);
 
   subscribed.add(symbol);
+  console.log("✅ Subscribed:", symbol);
 }
 
+// ✅ Streaming endpoint (SSE)
 app.get("/stream/:symbol", async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
+
+  if (!LOVABLE_SYMBOLS.includes(symbol)) {
+    return res.status(400).json({ error: "Unknown symbol" });
+  }
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -70,7 +89,7 @@ app.get("/stream/:symbol", async (req, res) => {
   if (latest.has(symbol)) sendSse(res, "price", latest.get(symbol));
 
   const heartbeat = setInterval(() => {
-    sendSse(res, "heartbeat", { ts: Date.now() });
+    sendSse(res, "heartbeat", { ts: Date.now(), symbol });
   }, 2000);
 
   req.on("close", () => {
@@ -79,6 +98,7 @@ app.get("/stream/:symbol", async (req, res) => {
   });
 });
 
+// ✅ Optional JSON endpoint (for polling)
 app.get("/latest/:symbol", (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
   res.json(latest.get(symbol) || null);
@@ -95,21 +115,33 @@ async function startMetaApi() {
 
   connection.addSynchronizationListener({
 
-    // ✅ Handles singular events
+    // ✅ Prices (handle BOTH SDK variants)
     onSymbolPriceUpdated: (instanceIndex, price) => {
       handlePrice(price);
     },
 
-    // ✅ Handles plural events
     onSymbolPricesUpdated: (instanceIndex, prices) => {
       if (!Array.isArray(prices)) return;
       for (const price of prices) handlePrice(price);
-    }
+    },
+
+    // ✅ Ignore noisy MetaApi events (prevents red errors)
+    onSymbolSpecificationUpdated: () => {},
+    onSymbolSpecificationsUpdated: () => {},
+    onAccountInformationUpdated: () => {},
+    onPositionsUpdated: () => {},
+    onPositionUpdated: () => {},
+    onOrdersUpdated: () => {},
+    onOrderUpdated: () => {},
+    onHistoryOrdersUpdated: () => {},
+    onDealsUpdated: () => {},
+    onDealUpdated: () => {}
   });
 
-  console.log("✅ MetaApi Connected");
+  console.log("✅ MetaApi Connected & Ready");
 }
 
+// ✅ Render-compatible PORT
 const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, async () => {
