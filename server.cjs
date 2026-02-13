@@ -115,34 +115,15 @@ app.get("/latest/:symbol", (req, res) => {
   res.json(latest.get(symbol) || null);
 });
 
-async function startMetaApi() {
-  const api = new MetaApi(METAAPI_TOKEN);
-  const account = await api.metatraderAccountApi.getAccount(ACCOUNT_ID);
+function handleOnePrice(price) {
+  if (!price?.symbol) return;
 
-  connection = account.getStreamingConnection();
+  const payload = { ts: Date.now(), price };
 
-  await connection.connect();
-  await connection.waitSynchronized();
-
-  // ✅ FIX: this SDK is calling onSymbolPriceUpdated (singular)
-  connection.addSynchronizationListener({
-    onSymbolPriceUpdated: (instanceIndex, price) => {
-      if (!price?.symbol) return;
-
-      const payload = { ts: Date.now(), price };
-
-      latest.set(price.symbol, payload);
-      broadcastPrice(payload);
-    }
-  });
-
-  console.log("✅ MetaApi Connected & Ready");
+  latest.set(price.symbol, payload);
+  broadcastPrice(payload);
 }
 
-// ✅ IMPORTANT: Render provides PORT via environment variable
-const PORT = process.env.PORT || 8080;
-
-app.listen(PORT, async () => {
-  console.log(`✅ Server running → port ${PORT}`);
-  await startMetaApi();
-});
+function handleManyPrices(prices) {
+  if (!Array.isArray(prices)) return;
+  for (con
