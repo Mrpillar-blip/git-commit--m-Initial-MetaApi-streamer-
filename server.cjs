@@ -39,7 +39,7 @@ const LOVABLE_SYMBOLS = [
   "XAUUSD.a","XAGUSD.a","SpotCrude.a","SpotBrent.a","NatGas.a","Copper.a"
 ];
 
-// symbol -> latest tick
+// symbol -> latest tick payload
 const latest = new Map();
 
 // res -> symbol requested
@@ -79,7 +79,7 @@ async function subscribeIfNeeded(symbol) {
   console.log("✅ Subscribed:", symbol);
 }
 
-// ✅ Streaming endpoint
+// ✅ Streaming endpoint (SSE)
 app.get("/stream/:symbol", async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
 
@@ -109,7 +109,7 @@ app.get("/stream/:symbol", async (req, res) => {
   });
 });
 
-// ✅ Optional JSON endpoint (useful for Lovable polling)
+// ✅ Optional JSON endpoint (useful for polling)
 app.get("/latest/:symbol", (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
   res.json(latest.get(symbol) || null);
@@ -124,21 +124,29 @@ async function startMetaApi() {
   await connection.connect();
   await connection.waitSynchronized();
 
+  // ✅ FIX: use onSymbolPricesUpdated (plural) and loop through prices
   connection.addSynchronizationListener({
-    onSymbolPriceUpdated: (instanceIndex, price) => {
-      if (!price?.symbol) return;
+    onSymbolPricesUpdated: (instanceIndex, prices) => {
+      if (!Array.isArray(prices)) return;
 
-      const payload = { ts: Date.now(), price };
+      for (const price of prices) {
+        if (!price?.symbol) continue;
 
-      latest.set(price.symbol, payload);
-      broadcastPrice(payload);
+        const payload = { ts: Date.now(), price };
+
+        latest.set(price.symbol, payload);
+        broadcastPrice(payload);
+      }
     }
   });
 
   console.log("✅ MetaApi Connected & Ready");
 }
 
-app.listen(8080, async () => {
-  console.log("✅ Server running → http://localhost:8080");
+// ✅ IMPORTANT: Render provides PORT via environment variable
+const PORT = process.env.PORT || 8080;
+
+app.listen(PORT, async () => {
+  console.log(`✅ Server running → port ${PORT}`);
   await startMetaApi();
 });
