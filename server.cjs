@@ -114,12 +114,10 @@ async function startMetaApi() {
   await connection.waitSynchronized();
 
   connection.addSynchronizationListener({
-
     // ✅ Prices (handle BOTH SDK variants)
     onSymbolPriceUpdated: (instanceIndex, price) => {
       handlePrice(price);
     },
-
     onSymbolPricesUpdated: (instanceIndex, prices) => {
       if (!Array.isArray(prices)) return;
       for (const price of prices) handlePrice(price);
@@ -135,7 +133,11 @@ async function startMetaApi() {
     onOrderUpdated: () => {},
     onHistoryOrdersUpdated: () => {},
     onDealsUpdated: () => {},
-    onDealUpdated: () => {}
+    onDealUpdated: () => {},
+
+    // ✅ NEW ones causing your current errors
+    onHealthStatus: () => {},
+    onBrokerConnectionStatusChanged: () => {}
   });
 
   console.log("✅ MetaApi Connected & Ready");
