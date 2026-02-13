@@ -16,18 +16,7 @@ if (!METAAPI_TOKEN || !ACCOUNT_ID) {
   throw new Error("Missing METAAPI_TOKEN or METAAPI_ACCOUNT_ID");
 }
 
-const LOVABLE_SYMBOLS = [
-  "EURUSD.a","GBPUSD.a","USDJPY.a","AUDUSD.a","USDCAD.a","USDCHF.a","NZDUSD.a",
-  "EURGBP.a","EURJPY.a","GBPJPY.a","EURAUD.a","GBPAUD.a","AUDJPY.a","AUDNZD.a",
-  "BTCUSD.a","ETHUSD.a","XRPUSD.a","LTCUSD.a","ADAUSD.a","SOLUSD.a",
-  "DOGEUSD.a","AVAXUSD.a","DOTUSD.a","LINKUSD.a",
-  "AAPL.US.a","MSFT.US.a","GOOG.US.a","GOOGL.US.a","TSLA.US.a","NVDA.US.a",
-  "AMZN.US.a","META.US.a","NOVOB.DK.a","0700.HK.a","HSBA.GB.a","SAPd.DE.a",
-  "SIEd.DE.a","OR.FR.a","AMD.US.a","PYPL.US.a","UBER.US.a","SHOP.US.a","NFLX.US.a",
-  "US500.a","US30.a","NAS100.a","UK100.a","GER40.a","JPN225.a",
-  "AUS200.a","HKNG.a","CN50.a","US2000.a",
-  "XAUUSD.a","XAGUSD.a","SpotCrude.a","SpotBrent.a","NatGas.a","Copper.a"
-];
+const LOVABLE_SYMBOLS = ["EURUSD.a","GBPUSD.a","BTCUSD.a","XAUUSD.a"];
 
 const latest = new Map();
 const clients = new Map();
@@ -47,25 +36,28 @@ function broadcastPrice(payload) {
   }
 }
 
+function handlePrice(price) {
+  if (!price?.symbol) return;
+
+  const payload = { ts: Date.now(), price };
+  latest.set(price.symbol, payload);
+  broadcastPrice(payload);
+}
+
 let connection;
 
 async function subscribeIfNeeded(symbol) {
   if (subscribed.has(symbol)) return;
 
-  console.log("📡 Subscribing:", symbol);
   await connection.subscribeToMarketData(symbol, [
     { type: "ticks", intervalInMilliseconds: 250 }
   ]);
+
   subscribed.add(symbol);
-  console.log("✅ Subscribed:", symbol);
 }
 
 app.get("/stream/:symbol", async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
-
-  if (!LOVABLE_SYMBOLS.includes(symbol)) {
-    return res.status(400).json({ error: "Unknown symbol" });
-  }
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -78,7 +70,7 @@ app.get("/stream/:symbol", async (req, res) => {
   if (latest.has(symbol)) sendSse(res, "price", latest.get(symbol));
 
   const heartbeat = setInterval(() => {
-    sendSse(res, "heartbeat", { ts: Date.now(), symbol });
+    sendSse(res, "heartbeat", { ts: Date.now() });
   }, 2000);
 
   req.on("close", () => {
@@ -102,20 +94,25 @@ async function startMetaApi() {
   await connection.waitSynchronized();
 
   connection.addSynchronizationListener({
+
+    // ✅ Handles singular events
     onSymbolPriceUpdated: (instanceIndex, price) => {
-      if (!price?.symbol) return;
-      const payload = { ts: Date.now(), price };
-      latest.set(price.symbol, payload);
-      broadcastPrice(payload);
+      handlePrice(price);
+    },
+
+    // ✅ Handles plural events
+    onSymbolPricesUpdated: (instanceIndex, prices) => {
+      if (!Array.isArray(prices)) return;
+      for (const price of prices) handlePrice(price);
     }
   });
 
-  console.log("✅ MetaApi Connected & Ready");
+  console.log("✅ MetaApi Connected");
 }
 
 const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, async () => {
-  console.log(`✅ Server running → port ${PORT}`);
+  console.log(`✅ Server running on port ${PORT}`);
   await startMetaApi();
 });
