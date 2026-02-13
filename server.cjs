@@ -16,36 +16,21 @@ if (!METAAPI_TOKEN || !ACCOUNT_ID) {
   throw new Error("Missing METAAPI_TOKEN or METAAPI_ACCOUNT_ID");
 }
 
-// ✅ Your Lovable symbols
 const LOVABLE_SYMBOLS = [
-  // Forex
   "EURUSD.a","GBPUSD.a","USDJPY.a","AUDUSD.a","USDCAD.a","USDCHF.a","NZDUSD.a",
   "EURGBP.a","EURJPY.a","GBPJPY.a","EURAUD.a","GBPAUD.a","AUDJPY.a","AUDNZD.a",
-
-  // Crypto
   "BTCUSD.a","ETHUSD.a","XRPUSD.a","LTCUSD.a","ADAUSD.a","SOLUSD.a",
   "DOGEUSD.a","AVAXUSD.a","DOTUSD.a","LINKUSD.a",
-
-  // Stocks
   "AAPL.US.a","MSFT.US.a","GOOG.US.a","GOOGL.US.a","TSLA.US.a","NVDA.US.a",
   "AMZN.US.a","META.US.a","NOVOB.DK.a","0700.HK.a","HSBA.GB.a","SAPd.DE.a",
   "SIEd.DE.a","OR.FR.a","AMD.US.a","PYPL.US.a","UBER.US.a","SHOP.US.a","NFLX.US.a",
-
-  // Indices
   "US500.a","US30.a","NAS100.a","UK100.a","GER40.a","JPN225.a",
   "AUS200.a","HKNG.a","CN50.a","US2000.a",
-
-  // Commodities
   "XAUUSD.a","XAGUSD.a","SpotCrude.a","SpotBrent.a","NatGas.a","Copper.a"
 ];
 
-// symbol -> latest tick
 const latest = new Map();
-
-// res -> symbol requested
 const clients = new Map();
-
-// Track subscriptions so we never double-subscribe
 const subscribed = new Set();
 
 function sendSse(res, event, data) {
@@ -58,9 +43,7 @@ function broadcastPrice(payload) {
   if (!sym) return;
 
   for (const [res, wanted] of clients.entries()) {
-    if (wanted === sym) {
-      sendSse(res, "price", payload);
-    }
+    if (wanted === sym) sendSse(res, "price", payload);
   }
 }
 
@@ -70,16 +53,13 @@ async function subscribeIfNeeded(symbol) {
   if (subscribed.has(symbol)) return;
 
   console.log("📡 Subscribing:", symbol);
-
   await connection.subscribeToMarketData(symbol, [
     { type: "ticks", intervalInMilliseconds: 250 }
   ]);
-
   subscribed.add(symbol);
   console.log("✅ Subscribed:", symbol);
 }
 
-// ✅ Streaming endpoint
 app.get("/stream/:symbol", async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
 
@@ -95,9 +75,7 @@ app.get("/stream/:symbol", async (req, res) => {
 
   await subscribeIfNeeded(symbol);
 
-  if (latest.has(symbol)) {
-    sendSse(res, "price", latest.get(symbol));
-  }
+  if (latest.has(symbol)) sendSse(res, "price", latest.get(symbol));
 
   const heartbeat = setInterval(() => {
     sendSse(res, "heartbeat", { ts: Date.now(), symbol });
@@ -109,7 +87,6 @@ app.get("/stream/:symbol", async (req, res) => {
   });
 });
 
-// ✅ Optional JSON endpoint (useful for Lovable polling)
 app.get("/latest/:symbol", (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
   res.json(latest.get(symbol) || null);
@@ -127,9 +104,7 @@ async function startMetaApi() {
   connection.addSynchronizationListener({
     onSymbolPriceUpdated: (instanceIndex, price) => {
       if (!price?.symbol) return;
-
       const payload = { ts: Date.now(), price };
-
       latest.set(price.symbol, payload);
       broadcastPrice(payload);
     }
@@ -138,7 +113,9 @@ async function startMetaApi() {
   console.log("✅ MetaApi Connected & Ready");
 }
 
-app.listen(8080, async () => {
-  console.log("✅ Server running → http://localhost:8080");
+const PORT = process.env.PORT || 8080;
+
+app.listen(PORT, async () => {
+  console.log(`✅ Server running → port ${PORT}`);
   await startMetaApi();
 });
