@@ -124,19 +124,15 @@ async function startMetaApi() {
   await connection.connect();
   await connection.waitSynchronized();
 
-  // ✅ FIX: use onSymbolPricesUpdated (plural) and loop through prices
+  // ✅ FIX: this SDK is calling onSymbolPriceUpdated (singular)
   connection.addSynchronizationListener({
-    onSymbolPricesUpdated: (instanceIndex, prices) => {
-      if (!Array.isArray(prices)) return;
+    onSymbolPriceUpdated: (instanceIndex, price) => {
+      if (!price?.symbol) return;
 
-      for (const price of prices) {
-        if (!price?.symbol) continue;
+      const payload = { ts: Date.now(), price };
 
-        const payload = { ts: Date.now(), price };
-
-        latest.set(price.symbol, payload);
-        broadcastPrice(payload);
-      }
+      latest.set(price.symbol, payload);
+      broadcastPrice(payload);
     }
   });
 
