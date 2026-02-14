@@ -16,7 +16,7 @@ if (!METAAPI_TOKEN || !ACCOUNT_ID) {
   throw new Error("Missing METAAPI_TOKEN or METAAPI_ACCOUNT_ID");
 }
 
-// ✅ Symbols your Lovable app can request
+// ✅ Symbols your Lovable app can request (add more later)
 const LOVABLE_SYMBOLS = [
   "EURUSD.a",
   "GBPUSD.a",
@@ -24,8 +24,11 @@ const LOVABLE_SYMBOLS = [
   "XAUUSD.a"
 ];
 
-// symbol -> latest tick payload
+// symbol -> latest payload (ts always updates every 1s once subscribed)
 const latest = new Map();
+
+// symbol -> last real tick price object received from MetaApi
+const lastTick = new Map();
 
 // res -> symbol requested
 const clients = new Map();
@@ -50,6 +53,10 @@ function broadcastPrice(payload) {
 function handlePrice(price) {
   if (!price?.symbol) return;
 
+  // store last real tick
+  lastTick.set(price.symbol, price);
+
+  // update latest immediately on every real tick
   const payload = { ts: Date.now(), price };
   latest.set(price.symbol, payload);
   broadcastPrice(payload);
@@ -62,9 +69,8 @@ async function subscribeIfNeeded(symbol) {
 
   console.log("📡 Subscribing:", symbol);
 
-  await connection.subscribeToMarketData(symbol, [
-    { type: "ticks", intervalInMilliseconds: 250 }
-  ]);
+  // ✅ Most compatible subscription (avoids TTL/interval validation errors)
+  await connection.subscribeToMarketData(symbol, [{ type: "ticks" }]);
 
   subscribed.add(symbol);
   console.log("✅ Subscribed:", symbol);
@@ -84,10 +90,13 @@ app.get("/stream/:symbol", async (req, res) => {
 
   clients.set(res, symbol);
 
+  // triggers MetaApi subscription for this symbol
   await subscribeIfNeeded(symbol);
 
+  // send immediate snapshot if we have one
   if (latest.has(symbol)) sendSse(res, "price", latest.get(symbol));
 
+  // keep connection alive
   const heartbeat = setInterval(() => {
     sendSse(res, "heartbeat", { ts: Date.now(), symbol });
   }, 2000);
@@ -98,9 +107,17 @@ app.get("/stream/:symbol", async (req, res) => {
   });
 });
 
-// ✅ Optional JSON endpoint (for polling)
-app.get("/latest/:symbol", (req, res) => {
+// ✅ JSON endpoint (Lovable polling)
+app.get("/latest/:symbol", async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
+
+  if (!LOVABLE_SYMBOLS.includes(symbol)) {
+    return res.status(400).json({ error: "Unknown symbol" });
+  }
+
+  // OPTIONAL: auto-subscribe on first poll so you don't need /stream open
+  await subscribeIfNeeded(symbol);
+
   res.json(latest.get(symbol) || null);
 });
 
@@ -134,11 +151,25 @@ async function startMetaApi() {
     onHistoryOrdersUpdated: () => {},
     onDealsUpdated: () => {},
     onDealUpdated: () => {},
-
-    // ✅ NEW ones causing your current errors
     onHealthStatus: () => {},
     onBrokerConnectionStatusChanged: () => {}
   });
+
+  // ✅ 1-second snapshot fix:
+  // After a symbol is subscribed AND we have at least one real tick,
+  // we refresh latest.ts every 1000ms so Lovable always sees a new update each second.
+  setInterval(() => {
+    for (const symbol of subscribed) {
+      const price = lastTick.get(symbol);
+      if (!price) continue;
+
+      const payload = { ts: Date.now(), price };
+      latest.set(symbol, payload);
+      // (optional) you can also broadcast here if you want stream clients to get
+      // a message every second even when price doesn't change:
+      // broadcastPrice(payload);
+    }
+  }, 1000);
 
   console.log("✅ MetaApi Connected & Ready");
 }
